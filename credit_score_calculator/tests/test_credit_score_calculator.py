@@ -55,3 +55,39 @@ def test_credit_score_calculator_returns_999_for_credit_utilisation_less_than_30
     assert credit_score['value'] == 999
     assert credit_score['category'] == 'excellent'
 
+def test_credit_score_calculator_penalizes_for_unpaid_invoices():
+    from datetime import datetime, timezone
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2023, 1, 1, tzinfo=timezone.utc), 'status': 'UNPAID'}
+        ],
+        'creditUtilisationPercentage': 0.8, # Base is 720
+    }
+    # Pass a current date that makes the UNPAID invoice overdue
+    credit_score = get_credit_score(credit_report, current_utc_time=datetime(2023, 3, 1, tzinfo=timezone.utc))
+    assert credit_score['value'] == 220 # 500 point deduction
+
+def test_credit_score_calculator_ignores_future_unpaid_invoices():
+    from datetime import datetime, timezone
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2023, 4, 1, tzinfo=timezone.utc), 'status': 'UNPAID'}
+        ],
+        'creditUtilisationPercentage': 0.2, # Base is 999
+    }
+    # Pass a current date BEFORE the due date
+    credit_score = get_credit_score(credit_report, current_utc_time=datetime(2023, 3, 1, tzinfo=timezone.utc))
+    assert credit_score['value'] == 999 
+
+def test_credit_score_calculator_ignores_invoices_older_than_two_years():
+    from datetime import datetime, timezone
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2020, 1, 1, tzinfo=timezone.utc), 'status': 'UNPAID'},
+            {'dueDate': datetime(2023, 1, 1, tzinfo=timezone.utc), 'status': 'PAID'},
+        ],
+        'creditUtilisationPercentage': 0.2, # Base is 999
+    }
+    # The 3-year-old UNPAID invoice is ignored. Score stays 999.
+    credit_score = get_credit_score(credit_report, current_utc_time=datetime(2023, 3, 1, tzinfo=timezone.utc))
+    assert credit_score['value'] == 999
