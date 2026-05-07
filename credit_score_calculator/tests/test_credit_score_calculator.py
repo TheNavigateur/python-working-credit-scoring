@@ -55,3 +55,17 @@ def test_credit_score_calculator_returns_999_for_credit_utilisation_less_than_30
     assert credit_score['value'] == 999
     assert credit_score['category'] == 'excellent'
 
+def test_credit_score_penalizes_for_unpaid_invoices():
+    from datetime import datetime, timezone
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2023, 1, 1, tzinfo=timezone.utc), 'status': 'PAID'},
+            {'dueDate': datetime(2023, 1, 1, tzinfo=timezone.utc), 'status': 'UNPAID'},
+        ],
+        'creditUtilisationPercentage': 0.2,
+    }
+
+    credit_score = get_credit_score(credit_report)
+
+    assert credit_score['value'] == 999
+    assert credit_score['category'] == 'excellent'
