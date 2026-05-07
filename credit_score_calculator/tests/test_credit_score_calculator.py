@@ -1,57 +1,81 @@
-from credit_score_calculator.credit_score_calculator import get_credit_score
+import pytest
+from credit_score_calculator.credit_score_calculator import CreditReport, CreditScoreCategory, get_credit_score
+from datetime import datetime, timezone
 
-def test_credit_score_calculator_returns_560_for_credit_utilisation_more_than_90_percent():
+@pytest.mark.parametrize("utilisation, expected_score, expected_category", [
+    (0.95, 560, CreditScoreCategory.VERY_POOR),
+    (0.9, 720, CreditScoreCategory.POOR), # 0.9 boundary check
+    (0.8, 720, CreditScoreCategory.POOR),
+    (0.7, 880, CreditScoreCategory.FAIR), # 0.7 boundary check
+    (0.6, 880, CreditScoreCategory.FAIR),
+    (0.5, 960, CreditScoreCategory.GOOD), # 0.5 boundary check
+    (0.4, 960, CreditScoreCategory.GOOD),
+    (0.3, 999, CreditScoreCategory.EXCELLENT), # 0.3 boundary check
+    (0.2, 999, CreditScoreCategory.EXCELLENT),
+])
+def test_for_expected_score_and_category_for_credit_utilisation(utilisation, expected_score, expected_category: CreditScoreCategory):
     credit_report = {
         'paymentHistory': [],
-        'creditUtilisationPercentage': 0.95,
+        'creditUtilisationPercentage': utilisation,
     }
 
-    credit_score = get_credit_score(credit_report)
+    credit_score = get_credit_score(CreditReport(**credit_report))
 
-    assert credit_score['value'] == 560
-    assert credit_score['category'] == 'very poor'
+    assert credit_score.value == expected_score
+    assert credit_score.category == expected_category
 
-def test_credit_score_calculator_returns_720_for_credit_utilisation_between_70_and_90_percent():
+
+"""
+    Deduct 5 points for every 1% of invoices that are unpaid
+    Ignore future invoices and those older than 2 years
+"""
+
+def test_for_ignoring_future_invoices():
     credit_report = {
-        'paymentHistory': [],
-        'creditUtilisationPercentage': 0.8,
-    }
-
-    credit_score = get_credit_score(credit_report)
-
-    assert credit_score['value'] == 720
-    assert credit_score['category'] == 'poor'
-
-def test_credit_score_calculator_returns_880_for_credit_utilisation_between_50_and_70_percent():
-    credit_report = {
-        'paymentHistory': [],
-        'creditUtilisationPercentage': 0.6,
-    }
-
-    credit_score = get_credit_score(credit_report)
-
-    assert credit_score['value'] == 880
-    assert credit_score['category'] == 'fair'
-
-def test_credit_score_calculator_returns_960_for_credit_utilisation_between_30_and_50_percent():
-    credit_report = {
-        'paymentHistory': [],
-        'creditUtilisationPercentage': 0.4,
-    }
-
-    credit_score = get_credit_score(credit_report)
-
-    assert credit_score['value'] == 960
-    assert credit_score['category'] == 'good'
-
-def test_credit_score_calculator_returns_999_for_credit_utilisation_less_than_30_percent():
-    credit_report = {
-        'paymentHistory': [],
+        'paymentHistory': [
+            {'dueDate': datetime(2026, 5, 8, tzinfo=timezone.utc), 'status': 'UNPAID'},
+        ],
         'creditUtilisationPercentage': 0.2,
     }
 
-    credit_score = get_credit_score(credit_report)
+    credit_score = get_credit_score(CreditReport(**credit_report), current_datetime=datetime(2026, 5, 7, tzinfo=timezone.utc))
 
-    assert credit_score['value'] == 999
-    assert credit_score['category'] == 'excellent'
+    assert credit_score.value == 999
+    assert credit_score.category == CreditScoreCategory.EXCELLENT
 
+def test_for_ignoring_old_invoices():
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2024, 5, 7, tzinfo=timezone.utc), 'status': 'UNPAID'},
+        ],
+        'creditUtilisationPercentage': 0.2,
+    }
+
+    credit_score = get_credit_score(CreditReport(**credit_report), current_datetime=datetime(2026, 5, 7, tzinfo=timezone.utc))
+
+    assert credit_score.value == 999
+    assert credit_score.category == CreditScoreCategory.EXCELLENT
+
+def test_for_unpaid_invoices_penalty():
+    credit_report = {
+        'paymentHistory': [
+            {'dueDate': datetime(2026, 1, 1, tzinfo=timezone.utc), 'status': 'UNPAID'},
+            {'dueDate': datetime(2026, 1, 2, tzinfo=timezone.utc), 'status': 'PAID'},
+            {'dueDate': datetime(2026, 1, 3, tzinfo=timezone.utc), 'status': 'PAID'},
+            {'dueDate': datetime(2026, 1, 4, tzinfo=timezone.utc), 'status': 'PAID'},
+        ],
+        'creditUtilisationPercentage': 0.2,
+    }
+
+    credit_score = get_credit_score(CreditReport(**credit_report), current_datetime=datetime(2026, 5, 7, tzinfo=timezone.utc))
+
+    """
+        Expected score:
+
+        999 - 
+        (25 * 5)
+
+        = 874
+    """
+    assert credit_score.value == 874
+    assert credit_score.category == CreditScoreCategory.FAIR
